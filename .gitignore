@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+# Python project specific ignores (absolute paths from /home/df/projects/mcf)
+/home/df/projects/mcf/.venv/
+/home/df/projects/mcf/__pycache__/
+/home/df/projects/mcf/*.pyc
+/home/df/projects/mcf/*.pyo
+/home/df/projects/mcf/*.pyd
+/home/df/projects/mcf/.pytest_cache/
+/home/df/projects/mcf/.mypy_cache/
+/home/df/projects/mcf/.ruff_cache/
+/home/df/projects/mcf/dist/
+/home/df/projects/mcf/build/
+/home/df/projects/mcf/*.egg-info/
+/home/df/projects/mcf/offline_packages/
+/home/df/projects/mcf/.coverage
+/home/df/projects/mcf/htmlcov/
+/home/df/projects/mcf/.tox/
+/home/df/projects/mcf/.env
+/home/df/projects/mcf/.DS_Store
+/home/df/projects/mcf/Thumbs.db
+
+scratch
