@@ -200,6 +200,8 @@ class MCFClient:
         *,
         page: int = 0,
         limit: int = 100,
+        categories: list[str] | None = None,
+        sort_by_date: bool = False,
     ) -> JobSearchResponse:
         """Search for job postings.
 
@@ -207,6 +209,8 @@ class MCFClient:
             keywords: Search keywords (job title, skills, etc.).
             page: Page number (0-indexed).
             limit: Number of results per page (max 100).
+            categories: Filter by category names (e.g., ["Information Technology"]).
+            sort_by_date: Sort by posting date (newest first).
 
         Returns:
             JobSearchResponse containing matching job postings.
@@ -227,6 +231,12 @@ class MCFClient:
         if keywords:
             body["search"] = keywords
 
+        if categories:
+            body["categories"] = categories
+
+        if sort_by_date:
+            body["sortBy"] = ["new_posting_date"]
+
         response = self._request(
             "POST",
             SEARCH_URL,
@@ -241,6 +251,8 @@ class MCFClient:
         *,
         limit: int = 100,
         max_jobs: int | None = None,
+        categories: list[str] | None = None,
+        sort_by_date: bool = False,
     ) -> Iterator[tuple[JobPosting, JobPosition]]:
         """Iterate through individual job postings with position info.
 
@@ -248,6 +260,8 @@ class MCFClient:
             keywords: Search keywords.
             limit: Results per page.
             max_jobs: Maximum total jobs to fetch (None for all).
+            categories: Filter by category names.
+            sort_by_date: Sort by posting date (newest first).
 
         Yields:
             Tuple of (JobPosting, JobPosition) for each job.
@@ -260,7 +274,13 @@ class MCFClient:
         job_index = 0
 
         while True:
-            response = self.search_jobs(keywords=keywords, page=page, limit=limit)
+            response = self.search_jobs(
+                keywords=keywords,
+                page=page,
+                limit=limit,
+                categories=categories,
+                sort_by_date=sort_by_date,
+            )
             total_pages = (response.total + limit - 1) // limit
 
             for i, job in enumerate(response.results, 1):

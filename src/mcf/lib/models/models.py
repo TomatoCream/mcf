@@ -172,6 +172,25 @@ class FlexibleWorkArrangement(BaseModel):
     arrangement: str | None = None
 
 
+class SubScheme(BaseModel):
+    """Sub-scheme details."""
+
+    id: int | None = None
+    name: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class Scheme(BaseModel):
+    """Job scheme/grant information."""
+
+    name: str | None = None
+    expiry_date: str | None = Field(None, alias="expiryDate")
+    sub_scheme: SubScheme | None = Field(None, alias="subScheme")
+
+    model_config = {"extra": "ignore"}
+
+
 class JobPosting(BaseModel):
     """A single job posting from search results."""
 
@@ -196,7 +215,7 @@ class JobPosting(BaseModel):
         [], alias="flexibleWorkArrangements"
     )
     skills: list[Skill] = []
-    schemes: list[str] = []
+    schemes: list[Scheme] = []
     shift_pattern: str | None = Field(None, alias="shiftPattern")
     status: JobStatusInfo | None = None
     metadata: JobMetadata
@@ -233,7 +252,7 @@ class JobSearchResponse(BaseModel):
     """Response from the job search API."""
 
     links: PaginationLinks = Field(alias="_links")
-    search_ranking_id: str = Field(alias="searchRankingId")
+    search_ranking_id: str | None = Field(None, alias="searchRankingId")
     results: list[JobPosting]
     total: int
     count_without_filters: int = Field(alias="countWithoutFilters")
