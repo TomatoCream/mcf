@@ -17,6 +17,9 @@ dependencies = [
     "typer>=0.21.0",
 ]
 
+[project.scripts]
+mcf = "mcf.cli.cli:main"
+
 [build-system]
 requires = ["uv_build>=0.8.23,<0.9.0"]
 build-backend = "uv_build"
