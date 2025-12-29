@@ -3,6 +3,8 @@ Models strictly following the MCF API JSON structure.
 Designed for JSON serialization and pandas/polars/pyarrow compatibility.
 """
 
+from __future__ import annotations
+
 from pydantic import BaseModel, ConfigDict
 
 
