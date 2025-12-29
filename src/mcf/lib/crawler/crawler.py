@@ -14,7 +14,6 @@ import pandas as pd
 
 from mcf.lib.api.client import MCFClient
 from mcf.lib.categories import CATEGORIES
-from mcf.lib.serialization import flatten_job
 
 if TYPE_CHECKING:
     from mcf.lib.models.models import JobPosting
