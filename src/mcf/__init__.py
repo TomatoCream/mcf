@@ -1,25 +1,14 @@
-"""MyCareersFuture API client and CLI.
+"""MyCareersFuture API client."""
 
-A Python library and CLI for searching jobs on MyCareersFuture Singapore.
-
-Example:
-    >>> from mcf import MCFClient
-    >>> client = MCFClient()
-    >>> results = client.search_jobs("python developer")
-    >>> for job in results.results:
-    ...     print(f"{job.title}")
-"""
-
-from mcf.lib.api.client import JobPosition, MCFAPIError, MCFClient, MCFClientError
-from mcf.lib.models.models import CommonData, Job, SearchResponse
+from mcf.lib.api.client import MCFAPIError, MCFClient
+from mcf.lib.categories import CATEGORIES
+from mcf.lib.models.models import Job, SearchResponse
 
 __version__ = "0.1.0"
 __all__ = [
     "MCFClient",
     "MCFAPIError",
-    "MCFClientError",
-    "JobPosition",
     "Job",
     "SearchResponse",
-    "CommonData",
+    "CATEGORIES",
 ]
