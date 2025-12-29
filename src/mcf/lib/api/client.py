@@ -10,10 +10,10 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from mcf.lib.models.models import (
-    CommonMetadata,
-    JobPosting,
-    JobSearchResponse,
+    CommonData,
+    Job,
     ProfileResponse,
+    SearchResponse,
 )
 
 if TYPE_CHECKING:
@@ -202,7 +202,7 @@ class MCFClient:
         limit: int = 100,
         categories: list[str] | None = None,
         sort_by_date: bool = True,
-    ) -> JobSearchResponse:
+    ) -> SearchResponse:
         """Search for job postings.
 
         Args:
@@ -243,7 +243,7 @@ class MCFClient:
             params=params,
             json=body,
         )
-        return JobSearchResponse.model_validate(response.json())
+        return SearchResponse.model_validate(response.json())
 
     def iter_jobs(
         self,
@@ -253,7 +253,7 @@ class MCFClient:
         max_jobs: int | None = None,
         categories: list[str] | None = None,
         sort_by_date: bool = True,
-    ) -> Iterator[tuple[JobPosting, JobPosition]]:
+    ) -> Iterator[tuple[Job, JobPosition]]:
         """Iterate through individual job postings with position info.
 
         Args:
@@ -303,14 +303,15 @@ class MCFClient:
                 break
             page += 1
 
-    def get_metadata(self) -> CommonMetadata:
+    def get_metadata(self) -> CommonData:
         """Fetch common metadata (employment types, classifications, etc.).
 
         Returns:
-            CommonMetadata containing reference data.
+            CommonData containing reference data.
 
         Raises:
             MCFAPIError: If the API returns an error.
+            MCFClientError: If the response is missing expected data.
         """
         body = {
             "operationName": "getAllEntities",
@@ -319,5 +320,7 @@ class MCFClient:
         }
         response = self._request("POST", PROFILE_URL, json=body)
         profile = ProfileResponse.model_validate(response.json())
+        if profile.data is None or profile.data.common is None:
+            raise MCFClientError("API returned incomplete metadata response")
         return profile.data.common
 

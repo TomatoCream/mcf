@@ -16,7 +16,71 @@ from mcf.lib.api.client import MCFClient
 from mcf.lib.categories import CATEGORIES
 
 if TYPE_CHECKING:
-    from mcf.lib.models.models import JobPosting
+    from mcf.lib.models.models import Job
+
+
+def flatten_job(job: Job, crawl_date: date, crawl_timestamp: datetime) -> dict:
+    """Flatten a Job model into a dict suitable for parquet storage.
+
+    Args:
+        job: The Job model to flatten.
+        crawl_date: Date of the crawl.
+        crawl_timestamp: Timestamp when crawl started.
+
+    Returns:
+        Flat dictionary with scalar values.
+    """
+    result: dict = {
+        "crawl_date": crawl_date.isoformat(),
+        "crawl_timestamp": crawl_timestamp.isoformat(),
+        "uuid": job.uuid,
+        "title": job.title,
+        "score": job.score,
+    }
+
+    # Company info
+    if job.hiringCompany:
+        result["hiring_company_name"] = job.hiringCompany.name
+        result["hiring_company_uen"] = job.hiringCompany.uen
+    if job.postedCompany:
+        result["posted_company_name"] = job.postedCompany.name
+        result["posted_company_uen"] = job.postedCompany.uen
+
+    # Salary
+    if job.salary:
+        result["salary_min"] = job.salary.minimum
+        result["salary_max"] = job.salary.maximum
+        if job.salary.type:
+            result["salary_type"] = job.salary.type.salaryType
+
+    # Metadata
+    if job.metadata:
+        result["job_post_id"] = job.metadata.jobPostId
+        result["new_posting_date"] = job.metadata.newPostingDate
+        result["updated_at"] = job.metadata.updatedAt
+        result["job_details_url"] = job.metadata.jobDetailsUrl
+        result["total_applications"] = job.metadata.totalNumberJobApplication
+
+    # Categories (as comma-separated string)
+    if job.categories:
+        result["categories"] = ",".join(c.category for c in job.categories)
+
+    # Employment types
+    if job.employmentTypes:
+        result["employment_types"] = ",".join(e.employmentType for e in job.employmentTypes)
+
+    # Skills
+    if job.skills:
+        result["skills"] = ",".join(s.skill for s in job.skills)
+
+    # Address
+    if job.address:
+        if job.address.districts:
+            result["location"] = job.address.districts[0].location
+            result["region"] = job.address.districts[0].region
+        result["postal_code"] = job.address.postalCode
+
+    return result
 
 
 @dataclass

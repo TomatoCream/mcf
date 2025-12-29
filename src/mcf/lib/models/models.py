@@ -116,13 +116,13 @@ class JobStatus(_Base):
 class Job(_Base):
     uuid: str
     title: str
-    score: float
-    retriever_score: float
-    recency_score: float
-    title_match_score: float
-    skills_match_score: float
-    company_match_score: float
-    job_role_score: float
+    score: float = 0.0
+    retriever_score: float = 0.0
+    recency_score: float = 0.0
+    title_match_score: float = 0.0
+    skills_match_score: float = 0.0
+    company_match_score: float = 0.0
+    job_role_score: float = 0.0
     shiftPattern: str | None = None
     skills: list[Skill] = []
     hiringCompany: Company | None = None
