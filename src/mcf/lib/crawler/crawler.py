@@ -13,10 +13,28 @@ from typing import TYPE_CHECKING, Callable
 import pandas as pd
 
 from mcf.lib.api.client import MCFClient
+from mcf.lib.categories import CATEGORIES
 from mcf.lib.serialization import flatten_job
 
 if TYPE_CHECKING:
     from mcf.lib.models.models import JobPosting
+
+
+@dataclass
+class CategoryResult:
+    """Result for a single category crawl."""
+
+    category: str
+    """Category name."""
+
+    fetched_count: int = 0
+    """Jobs fetched for this category."""
+
+    total_available: int = 0
+    """Total jobs available in this category."""
+
+    skipped: bool = False
+    """Whether this category was skipped (e.g., 0 jobs)."""
 
 
 @dataclass
@@ -40,6 +58,9 @@ class CrawlResult:
 
     interrupted: bool = False
     """Whether the crawl was interrupted."""
+
+    category_results: list[CategoryResult] = field(default_factory=list)
+    """Per-category results (for all-categories crawl)."""
 
     @property
     def duration_display(self) -> str:
@@ -67,6 +88,22 @@ class CrawlProgress:
 
     elapsed: float
     """Elapsed time in seconds."""
+
+    # Category tracking (for all-categories crawl)
+    current_category: str | None = None
+    """Current category being crawled."""
+
+    category_index: int = 0
+    """Current category index (1-indexed)."""
+
+    total_categories: int = 0
+    """Total number of categories to crawl."""
+
+    category_fetched: int = 0
+    """Jobs fetched in current category."""
+
+    category_total: int = 0
+    """Total jobs in current category."""
 
     @property
     def speed(self) -> float:
@@ -261,6 +298,180 @@ class Crawler:
             result.saved_count = saved_count
             result.part_count = part_num
             result.duration_seconds = time.monotonic() - start_time
+            result.interrupted = True
+            raise
+
+        return result
+
+    def crawl_all_categories(
+        self,
+        *,
+        target_date: date | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> CrawlResult:
+        """Crawl all categories to get around the 10k pagination limit.
+
+        The API limits pagination to ~10k results. By crawling each category
+        separately, we can get all jobs even when total exceeds 10k.
+
+        Args:
+            target_date: Override crawl date (default: today).
+            on_progress: Callback for progress updates.
+
+        Returns:
+            CrawlResult with combined statistics from all categories.
+        """
+        if target_date is None:
+            target_date = date.today()
+
+        crawl_timestamp = datetime.now()
+
+        # Create partition directory
+        partition_dir = self.output_dir / f"crawl_date={target_date.isoformat()}"
+        if not self.dry_run:
+            partition_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize state
+        fetched_count = 0
+        saved_count = 0
+        part_num = 0
+        seen_uuids: set[str] = set()  # Deduplicate jobs across categories
+        category_results: list[CategoryResult] = []
+        start_time = time.monotonic()
+
+        result = CrawlResult(partition_dir=partition_dir)
+
+        try:
+            client = MCFClient(rate_limit=self.rate_limit)
+
+            # First, count jobs per category to estimate total
+            category_counts: list[tuple[str, int]] = []
+            for cat in CATEGORIES:
+                response = client.search_jobs(limit=1, categories=[cat])
+                category_counts.append((cat, response.total))
+
+            # Estimate total (may have duplicates across categories)
+            estimated_total = sum(count for _, count in category_counts)
+            total_categories = len(CATEGORIES)
+
+            # Crawl each category
+            for cat_idx, (category, cat_total) in enumerate(category_counts, 1):
+                cat_result = CategoryResult(
+                    category=category,
+                    total_available=cat_total,
+                )
+
+                if cat_total == 0:
+                    cat_result.skipped = True
+                    category_results.append(cat_result)
+                    continue
+
+                batch_buffer: list[dict] = []
+                raw_json_buffer: list[dict] = []
+                cat_fetched = 0
+                page = 0
+                page_size = 100
+
+                while True:
+                    response = client.search_jobs(
+                        page=page,
+                        limit=page_size,
+                        categories=[category],
+                        sort_by_date=True,
+                    )
+
+                    if not response.results:
+                        break
+
+                    for job in response.results:
+                        # Deduplicate: jobs can appear in multiple categories
+                        if job.uuid in seen_uuids:
+                            continue
+                        seen_uuids.add(job.uuid)
+
+                        flat_job = flatten_job(job, target_date, crawl_timestamp)
+                        batch_buffer.append(flat_job)
+
+                        if self.save_json:
+                            raw_json_buffer.append(
+                                job.model_dump(by_alias=True, mode="json")
+                            )
+
+                        fetched_count += 1
+                        cat_fetched += 1
+
+                        # Flush batch
+                        if len(batch_buffer) >= self.batch_size:
+                            if not self.dry_run:
+                                part_num += 1
+                                self._write_batch(
+                                    partition_dir,
+                                    part_num,
+                                    batch_buffer,
+                                    raw_json_buffer,
+                                )
+                            saved_count += len(batch_buffer)
+                            batch_buffer.clear()
+                            raw_json_buffer.clear()
+
+                        # Progress callback
+                        if on_progress:
+                            elapsed = time.monotonic() - start_time
+                            on_progress(
+                                CrawlProgress(
+                                    total_jobs=estimated_total,
+                                    fetched=fetched_count,
+                                    saved=saved_count,
+                                    part_num=part_num,
+                                    elapsed=elapsed,
+                                    current_category=category,
+                                    category_index=cat_idx,
+                                    total_categories=total_categories,
+                                    category_fetched=cat_fetched,
+                                    category_total=cat_total,
+                                )
+                            )
+
+                    # Check pagination limit
+                    if (page + 1) * page_size >= response.total:
+                        break
+                    if (page + 1) * page_size >= 10000:
+                        # Hit API limit, move to next category
+                        break
+
+                    page += 1
+
+                # Flush remaining for this category
+                if batch_buffer:
+                    if not self.dry_run:
+                        part_num += 1
+                        self._write_batch(
+                            partition_dir,
+                            part_num,
+                            batch_buffer,
+                            raw_json_buffer,
+                        )
+                    saved_count += len(batch_buffer)
+                    batch_buffer.clear()
+                    raw_json_buffer.clear()
+
+                cat_result.fetched_count = cat_fetched
+                category_results.append(cat_result)
+
+            client.close()
+
+            result.fetched_count = fetched_count
+            result.saved_count = saved_count
+            result.part_count = part_num
+            result.duration_seconds = time.monotonic() - start_time
+            result.category_results = category_results
+
+        except KeyboardInterrupt:
+            result.fetched_count = fetched_count
+            result.saved_count = saved_count
+            result.part_count = part_num
+            result.duration_seconds = time.monotonic() - start_time
+            result.category_results = category_results
             result.interrupted = True
             raise
 

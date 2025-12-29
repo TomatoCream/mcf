@@ -1,6 +1,6 @@
 """Crawler module for archiving job postings."""
 
-from mcf.lib.crawler.crawler import CrawlResult, Crawler
+from mcf.lib.crawler.crawler import CategoryResult, CrawlProgress, CrawlResult, Crawler
 
-__all__ = ["Crawler", "CrawlResult"]
+__all__ = ["CategoryResult", "CrawlProgress", "CrawlResult", "Crawler"]
 

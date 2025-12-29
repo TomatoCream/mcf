@@ -15,6 +15,7 @@ from rich.table import Table
 
 from mcf.lib import (
     CATEGORIES,
+    CATEGORY_SLUGS,
     CrawlResult,
     Crawler,
     MCFClient,
@@ -24,6 +25,7 @@ from mcf.lib import (
     err_console,
     find_categories,
     make_progress_table,
+    resolve_category,
 )
 from mcf.lib.api.client import MCFClientError
 from mcf.lib.crawler.crawler import CrawlProgress
@@ -53,12 +55,8 @@ def search(
     ] = 100,
     category: Annotated[
         Optional[list[str]],
-        typer.Option("--category", "-c", help="Filter by category (can use multiple)"),
+        typer.Option("--category", "-c", help="Filter by category slug or name"),
     ] = None,
-    sort_by_date: Annotated[
-        bool,
-        typer.Option("--newest", "-n", help="Sort by posting date (newest first)"),
-    ] = False,
     show_urls: Annotated[
         bool,
         typer.Option("--urls", "-u", help="Show job URLs in table"),
@@ -70,6 +68,11 @@ def search(
 ) -> None:
     """🔍 Search for jobs on MyCareersFuture.
 
+    Results are sorted by posting date (newest first).
+
+    Categories can be specified by slug (e.g., "it", "engineering") or full name.
+    Use 'mcf categories' to see all available categories and their slugs.
+
     Examples:
 
         mcf search "python developer"
@@ -78,32 +81,21 @@ def search(
 
         mcf search "data engineer" --urls
 
-        mcf search --category "Information Technology" --newest
+        mcf search -c it
 
-        mcf search -c "Engineering" -c "Manufacturing" -n
+        mcf search -c engineering -c manufacturing
     """
     # Validate categories
     validated_categories: list[str] | None = None
     if category:
         validated_categories = []
         for cat in category:
-            matches = find_categories(cat)
-            if not matches:
+            resolved = resolve_category(cat)
+            if resolved:
+                validated_categories.append(resolved)
+            else:
                 err_console.print(f"[yellow]Warning:[/yellow] Unknown category '{cat}'")
                 err_console.print("[dim]Use 'mcf categories' to see available categories[/dim]")
-            elif len(matches) == 1:
-                validated_categories.append(matches[0])
-            else:
-                # Exact match takes precedence
-                exact = [m for m in matches if m.lower() == cat.lower()]
-                if exact:
-                    validated_categories.append(exact[0])
-                else:
-                    validated_categories.append(matches[0])
-                    if len(matches) > 1:
-                        err_console.print(
-                            f"[dim]'{cat}' matched multiple categories, using '{matches[0]}'[/dim]"
-                        )
 
     try:
         with console.status("[cyan]Searching jobs...[/cyan]", spinner="dots"):
@@ -113,7 +105,6 @@ def search(
                 page=page,
                 limit=limit,
                 categories=validated_categories,
-                sort_by_date=sort_by_date,
             )
             client.close()
 
@@ -142,20 +133,32 @@ def search(
         raise typer.Exit(1) from e
 
 
+def _to_slug(name: str) -> str:
+    """Convert category name to slug (import from categories module)."""
+    import re
+
+    slug = name.lower()
+    slug = slug.replace(" / ", "-").replace("/", "-").replace(" & ", "-").replace("&", "")
+    slug = slug.replace(" ", "-")
+    slug = re.sub(r"[^a-z0-9-]", "", slug)
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-")
+
+
 @app.command()
 def categories(
     search_term: Annotated[
         Optional[str],
-        typer.Argument(help="Filter categories by name"),
+        typer.Argument(help="Filter categories by name or slug"),
     ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output as JSON"),
     ] = False,
 ) -> None:
-    """📂 List available job categories.
+    """📂 List available job categories with their slugs.
 
-    Categories can be used with the --category option in search and crawl commands.
+    Use the slug (left column) for easier typing with --category/-c options.
 
     Examples:
 
@@ -163,12 +166,15 @@ def categories(
 
         mcf categories tech
 
-        mcf categories --json
+        mcf search -c it           # uses slug
+
+        mcf crawl -c engineering   # uses slug
     """
     cats = CATEGORIES if not search_term else find_categories(search_term)
 
     if json_output:
-        console.print_json(json.dumps(cats))
+        data = [{"slug": _to_slug(cat), "name": cat} for cat in cats]
+        console.print_json(json.dumps(data))
         return
 
     if not cats:
@@ -180,18 +186,19 @@ def categories(
         show_header=True,
         header_style="bold cyan",
     )
-    table.add_column("#", style="dim", width=3, justify="right")
+    table.add_column("Slug", style="green", min_width=25)
     table.add_column("Category", style="white")
 
-    for i, cat in enumerate(cats, 1):
-        table.add_row(str(i), cat)
+    for cat in cats:
+        slug = _to_slug(cat)
+        table.add_row(slug, cat)
 
     console.print()
     console.print(
         Panel(
             table,
             title="[bold]📂 Job Categories[/bold]",
-            subtitle=f"[dim]{len(cats)} categories[/dim]",
+            subtitle=f"[dim]{len(cats)} categories • use slug with -c option[/dim]",
             border_style="blue",
         )
     )
@@ -413,9 +420,22 @@ def crawl(
         Optional[str],
         typer.Option(
             "--date",
+            "-d",
             help="Override crawl date (YYYY-MM-DD format, default: today)",
         ),
     ] = None,
+    category: Annotated[
+        Optional[list[str]],
+        typer.Option("--category", "-c", help="Filter by category slug or name"),
+    ] = None,
+    all_categories: Annotated[
+        bool,
+        typer.Option(
+            "--all-categories",
+            "-a",
+            help="Crawl all categories (bypasses 10k pagination limit)",
+        ),
+    ] = False,
     rate_limit: Annotated[
         float,
         typer.Option(
@@ -424,10 +444,6 @@ def crawl(
             help="API requests per second",
         ),
     ] = 5.0,
-    category: Annotated[
-        Optional[list[str]],
-        typer.Option("--category", "-c", help="Filter by category (can use multiple)"),
-    ] = None,
     no_json: Annotated[
         bool,
         typer.Option(
@@ -448,6 +464,12 @@ def crawl(
     Fetches every job currently on MyCareersFuture and saves to partitioned
     parquet files for time-series analysis. Also saves raw JSON for debugging.
 
+    The API has a 10k pagination limit. Use --all-categories to crawl each
+    category separately, which allows fetching all jobs even when total > 10k.
+
+    Categories can be specified by slug (e.g., "it", "engineering") or full name.
+    Use 'mcf categories' to see all available categories and their slugs.
+
     The crawler:
 
     • Runs until ALL jobs are fetched (no arbitrary limits)
@@ -460,17 +482,17 @@ def crawl(
 
     • Sorts by posting date (newest first)
 
+    • Deduplicates jobs that appear in multiple categories
+
     Examples:
 
-        mcf crawl
+        mcf crawl --all-categories          # Full archive (recommended)
 
-        mcf crawl --output ./archive --batch-size 2000
+        mcf crawl -a                        # Same as above, short form
 
-        mcf crawl --date 2025-01-15 --dry-run
+        mcf crawl -c it                     # Single category
 
-        mcf crawl --category "Information Technology"
-
-        mcf crawl -c "Engineering" -c "Manufacturing"
+        mcf crawl -c engineering -c manufacturing
     """
     # Parse crawl date
     if crawl_date_override:
@@ -483,23 +505,22 @@ def crawl(
     else:
         target_date = date.today()
 
+    # Check for conflicting options
+    if all_categories and category:
+        err_console.print("[red]Error:[/red] Cannot use --all-categories with --category")
+        raise typer.Exit(1)
+
     # Validate categories
     validated_categories: list[str] | None = None
     if category:
         validated_categories = []
         for cat in category:
-            matches = find_categories(cat)
-            if not matches:
+            resolved = resolve_category(cat)
+            if resolved:
+                validated_categories.append(resolved)
+            else:
                 err_console.print(f"[yellow]Warning:[/yellow] Unknown category '{cat}'")
                 err_console.print("[dim]Use 'mcf categories' to see available categories[/dim]")
-            elif len(matches) == 1:
-                validated_categories.append(matches[0])
-            else:
-                exact = [m for m in matches if m.lower() == cat.lower()]
-                if exact:
-                    validated_categories.append(exact[0])
-                else:
-                    validated_categories.append(matches[0])
 
     # Build config display
     config_lines = [
@@ -509,7 +530,9 @@ def crawl(
         f"[bold]Rate Limit:[/bold] {rate_limit} req/s",
         f"[bold]Save JSON:[/bold] {'No' if no_json else 'Yes'}",
     ]
-    if validated_categories:
+    if all_categories:
+        config_lines.append(f"[bold]Mode:[/bold] All Categories ({len(CATEGORIES)} categories)")
+    elif validated_categories:
         config_lines.append(f"[bold]Categories:[/bold] {', '.join(validated_categories)}")
 
     console.print()
@@ -531,59 +554,134 @@ def crawl(
         dry_run=dry_run,
     )
 
-    # Get initial count
     try:
-        with console.status("[cyan]Counting active jobs...[/cyan]", spinner="dots"):
-            client = MCFClient()
-            initial = client.search_jobs(limit=1, categories=validated_categories)
-            total_jobs = initial.total
-            client.close()
-
-        console.print(f"[green]Found {total_jobs:,} active jobs to crawl[/green]")
-        console.print()
-
-        # Progress callback
-        def on_progress(progress: CrawlProgress) -> None:
-            live.update(
-                make_progress_table(
-                    progress.total_jobs,
-                    progress.fetched,
-                    progress.saved,
-                    progress.elapsed,
-                    progress.part_num,
-                )
-            )
-
-        # Run crawl with live display
-        with Live(
-            make_progress_table(total_jobs, 0, 0, 0.001, 0),
-            console=console,
-            refresh_per_second=4,
-        ) as live:
-            try:
-                result = crawler.crawl(
-                    categories=validated_categories,
-                    target_date=target_date,
-                    on_progress=on_progress,
-                )
-            except KeyboardInterrupt:
-                result = CrawlResult(
-                    partition_dir=output_dir / f"crawl_date={target_date.isoformat()}",
-                    interrupted=True,
-                )
-
-        # Final summary
-        _display_crawl_result(result)
-
-        if result.interrupted:
-            raise typer.Exit(130)
+        if all_categories:
+            # Crawl all categories to bypass 10k limit
+            _crawl_all_categories(crawler, target_date, output_dir)
+        else:
+            # Single category or no category crawl
+            _crawl_single(crawler, target_date, output_dir, validated_categories)
 
     except MCFClientError as e:
         err_console.print(f"\n[red]Crawl Error:[/red] {e}")
         raise typer.Exit(1) from e
 
 
-def _display_crawl_result(result: CrawlResult) -> None:
+def _crawl_single(
+    crawler: Crawler,
+    target_date: date,
+    output_dir: Path,
+    categories: list[str] | None,
+) -> None:
+    """Run a single crawl (one category or all jobs without category filter)."""
+    with console.status("[cyan]Counting active jobs...[/cyan]", spinner="dots"):
+        client = MCFClient()
+        initial = client.search_jobs(limit=1, categories=categories)
+        total_jobs = initial.total
+        client.close()
+
+    console.print(f"[green]Found {total_jobs:,} active jobs to crawl[/green]")
+    console.print()
+
+    # Progress callback
+    def on_progress(progress: CrawlProgress) -> None:
+        live.update(
+            make_progress_table(
+                progress.total_jobs,
+                progress.fetched,
+                progress.saved,
+                progress.elapsed,
+                progress.part_num,
+            )
+        )
+
+    # Run crawl with live display
+    with Live(
+        make_progress_table(total_jobs, 0, 0, 0.001, 0),
+        console=console,
+        refresh_per_second=4,
+    ) as live:
+        try:
+            result = crawler.crawl(
+                categories=categories,
+                target_date=target_date,
+                on_progress=on_progress,
+            )
+        except KeyboardInterrupt:
+            result = CrawlResult(
+                partition_dir=output_dir / f"crawl_date={target_date.isoformat()}",
+                interrupted=True,
+            )
+
+    # Final summary
+    _display_crawl_result(result)
+
+    if result.interrupted:
+        raise typer.Exit(130)
+
+
+def _crawl_all_categories(
+    crawler: Crawler,
+    target_date: date,
+    output_dir: Path,
+) -> None:
+    """Crawl all categories to bypass the 10k pagination limit."""
+    with console.status(
+        f"[cyan]Counting jobs across {len(CATEGORIES)} categories...[/cyan]",
+        spinner="dots",
+    ):
+        client = MCFClient()
+        # Quick estimate of total jobs
+        initial = client.search_jobs(limit=1)
+        estimated_total = initial.total
+        client.close()
+
+    console.print(f"[green]Estimated {estimated_total:,} total jobs across all categories[/green]")
+    console.print("[dim]Jobs appearing in multiple categories will be deduplicated[/dim]")
+    console.print()
+
+    # Progress callback with category info
+    def on_progress(progress: CrawlProgress) -> None:
+        live.update(
+            make_progress_table(
+                progress.total_jobs,
+                progress.fetched,
+                progress.saved,
+                progress.elapsed,
+                progress.part_num,
+                current_category=progress.current_category,
+                category_index=progress.category_index,
+                total_categories=progress.total_categories,
+                category_fetched=progress.category_fetched,
+                category_total=progress.category_total,
+            )
+        )
+
+    # Run crawl with live display
+    with Live(
+        make_progress_table(estimated_total, 0, 0, 0.001, 0),
+        console=console,
+        refresh_per_second=4,
+    ) as live:
+        try:
+            result = crawler.crawl_all_categories(
+                target_date=target_date,
+                on_progress=on_progress,
+            )
+        except KeyboardInterrupt:
+            result = CrawlResult(
+                partition_dir=output_dir / f"crawl_date={target_date.isoformat()}",
+                interrupted=True,
+            )
+
+    # Final summary with category breakdown
+    _display_crawl_result(result, show_categories=True)
+
+    if result.interrupted:
+        raise typer.Exit(130)
+
+
+def _display_crawl_result(result: CrawlResult, *, show_categories: bool = False) -> None:
     """Display crawl result summary."""
     if result.interrupted:
         status = "[yellow]⚠️ Crawl Interrupted[/yellow]"
@@ -594,15 +692,25 @@ def _display_crawl_result(result: CrawlResult) -> None:
         border = "green"
         title = "[bold]📊 Summary[/bold]"
 
+    lines = [
+        f"{status}\n",
+        f"[bold]Jobs Fetched:[/bold] {result.fetched_count:,}",
+        f"[bold]Jobs Saved:[/bold] {result.saved_count:,}",
+        f"[bold]Part Files:[/bold] {result.part_count}",
+        f"[bold]Duration:[/bold] {result.duration_display}",
+        f"[bold]Output:[/bold] {result.partition_dir}",
+    ]
+
+    # Show category breakdown if requested
+    if show_categories and result.category_results:
+        lines.append("")
+        categories_crawled = sum(1 for c in result.category_results if not c.skipped)
+        lines.append(f"[bold]Categories Crawled:[/bold] {categories_crawled}/{len(result.category_results)}")
+
     console.print()
     console.print(
         Panel(
-            f"{status}\n\n"
-            f"[bold]Jobs Fetched:[/bold] {result.fetched_count:,}\n"
-            f"[bold]Jobs Saved:[/bold] {result.saved_count:,}\n"
-            f"[bold]Part Files:[/bold] {result.part_count}\n"
-            f"[bold]Duration:[/bold] {result.duration_display}\n"
-            f"[bold]Output:[/bold] {result.partition_dir}",
+            "\n".join(lines),
             title=title,
             border_style=border,
         )

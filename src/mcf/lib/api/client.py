@@ -201,7 +201,7 @@ class MCFClient:
         page: int = 0,
         limit: int = 100,
         categories: list[str] | None = None,
-        sort_by_date: bool = False,
+        sort_by_date: bool = True,
     ) -> JobSearchResponse:
         """Search for job postings.
 
@@ -210,7 +210,7 @@ class MCFClient:
             page: Page number (0-indexed).
             limit: Number of results per page (max 100).
             categories: Filter by category names (e.g., ["Information Technology"]).
-            sort_by_date: Sort by posting date (newest first).
+            sort_by_date: Sort by posting date (newest first, default True).
 
         Returns:
             JobSearchResponse containing matching job postings.
@@ -252,7 +252,7 @@ class MCFClient:
         limit: int = 100,
         max_jobs: int | None = None,
         categories: list[str] | None = None,
-        sort_by_date: bool = False,
+        sort_by_date: bool = True,
     ) -> Iterator[tuple[JobPosting, JobPosition]]:
         """Iterate through individual job postings with position info.
 

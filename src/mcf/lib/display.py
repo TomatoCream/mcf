@@ -142,6 +142,12 @@ def make_progress_table(
     saved: int,
     elapsed: float,
     part_num: int,
+    *,
+    current_category: str | None = None,
+    category_index: int = 0,
+    total_categories: int = 0,
+    category_fetched: int = 0,
+    category_total: int = 0,
 ) -> Table:
     """Create a live progress table for crawling."""
     table = Table(box=box.ROUNDED, show_header=False, border_style="cyan")
@@ -153,7 +159,20 @@ def make_progress_table(
     eta_min = int(eta_seconds // 60)
     eta_sec = int(eta_seconds % 60)
 
-    table.add_row("📊 Active Jobs", f"[green]{total_jobs:,}[/green]")
+    # Show category info if crawling all categories
+    if current_category:
+        cat_display = truncate(current_category, 30)
+        table.add_row(
+            "🏷️  Category",
+            f"[magenta]{cat_display}[/magenta] ({category_index}/{total_categories})",
+        )
+        cat_pct = (category_fetched / category_total * 100) if category_total > 0 else 0
+        table.add_row(
+            "   └─ Progress",
+            f"[dim]{category_fetched:,}/{category_total:,} ({cat_pct:.0f}%)[/dim]",
+        )
+
+    table.add_row("📊 Est. Total", f"[green]{total_jobs:,}[/green]")
     table.add_row("📥 Fetched", f"[cyan]{fetched:,}[/cyan]")
     table.add_row("💾 Saved", f"[yellow]{saved:,}[/yellow]")
     table.add_row("📁 Part Files", f"[magenta]{part_num}[/magenta]")

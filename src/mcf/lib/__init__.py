@@ -1,7 +1,16 @@
 """MCF library module."""
 
 from mcf.lib.api.client import MCFClient
-from mcf.lib.categories import CATEGORIES, find_categories, get_categories, validate_category
+from mcf.lib.categories import (
+    CATEGORIES,
+    CATEGORY_ALIASES,
+    CATEGORY_SLUGS,
+    find_categories,
+    get_categories,
+    get_category_slugs,
+    resolve_category,
+    validate_category,
+)
 from mcf.lib.crawler import CrawlResult, Crawler
 from mcf.lib.display import (
     console,
@@ -32,8 +41,12 @@ __all__ = [
     "CrawlResult",
     # Categories
     "CATEGORIES",
+    "CATEGORY_ALIASES",
+    "CATEGORY_SLUGS",
     "find_categories",
     "get_categories",
+    "get_category_slugs",
+    "resolve_category",
     "validate_category",
     # Display
     "console",
