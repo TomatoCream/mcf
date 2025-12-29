@@ -55,6 +55,10 @@ class MCFClient:
     def __exit__(self, *args: object) -> None:
         self._client.close()
 
+    def close(self) -> None:
+        """Close the HTTP client."""
+        self._client.close()
+
     def _wait_for_rate_limit(self) -> None:
         if self._rate_limit is None or self._rate_limit <= 0:
             return

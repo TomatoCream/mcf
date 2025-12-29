@@ -127,12 +127,14 @@ class Crawler:
         self,
         *,
         categories: list[str] | None = None,
+        limit: int | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> CrawlResult:
         """Crawl all jobs matching the criteria.
 
         Args:
             categories: Filter by category names (e.g., ["Information Technology"]).
+            limit: Maximum number of jobs to fetch (for testing).
             on_progress: Callback for progress updates.
 
         Returns:
@@ -152,6 +154,8 @@ class Crawler:
                 sort_by_date=True,
             )
             total_jobs = initial_response.total
+            if limit:
+                total_jobs = min(total_jobs, limit)
 
             page = 0
             page_size = 100  # API max
@@ -180,6 +184,13 @@ class Crawler:
                                 elapsed=elapsed,
                             )
                         )
+
+                    # Check limit
+                    if limit and fetched_count >= limit:
+                        break
+
+                if limit and fetched_count >= limit:
+                    break
 
                 if (page + 1) * page_size >= response.total:
                     break
