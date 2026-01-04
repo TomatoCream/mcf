@@ -1,3 +1,40 @@
+# mcf
+
+MyCareersFuture job crawler for Singapore.
+
+## Usage
+
+### CLI
+
+Crawl all jobs to parquet:
+
+```bash
+mcf crawl
+```
+
+Options:
+- `-o, --output` — Output directory (default: `data/jobs`)
+- `-r, --rate-limit` — Requests per second (default: 4.0)
+- `-l, --limit` — Max jobs to fetch (for testing)
+
+### Library
+
+```python
+from mcf.lib.api.client import MCFClient
+from mcf.lib.crawler.crawler import Crawler
+
+# Direct API access
+with MCFClient() as client:
+    results = client.search_jobs(keywords="python", limit=10)
+    job = client.get_job_detail(results.results[0].uuid)
+
+# Batch crawl
+crawler = Crawler(rate_limit=5.0)
+result = crawler.crawl(categories=["Information Technology"], limit=100)
+df = result.jobs  # pandas DataFrame
+```
+
+---
 
 ## Development Guide
 
