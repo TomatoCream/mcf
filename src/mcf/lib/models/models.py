@@ -110,7 +110,7 @@ class PositionLevel(_Base):
 
 class JobStatus(_Base):
     jobStatus: str
-    id: str
+    id: int
 
 
 class Job(_Base):
