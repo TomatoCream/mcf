@@ -32,6 +32,10 @@ class DetailSkill(_Base):
     isKeySkill: bool = False
     confidence: float | None = None
 
+class Badge(_Base):
+    badgeType: str | None = None
+    expiryDate: str | None = None
+
 
 class DetailSalaryType(_Base):
     """Salary type with id field."""
@@ -75,7 +79,7 @@ class DetailCompany(_Base):
     employeeCount: int | None = None
     companyUrl: str | None = None
     lastSyncDate: str | None = None
-    badges: list[str] = []
+    badges: list[Badge] = []
     logoFileName: str | None = None
     logoUploadPath: str | None = None
     responsiveEmployer: dict | None = None

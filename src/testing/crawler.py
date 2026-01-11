@@ -172,12 +172,7 @@ class Crawler:
                     break
 
                 for job in response.results:
-                    job_uuid = job.uuid
-                    full_job_info = client.get_job_detail(job_uuid)
-                    
-                    # 3. Save the full info (which includes the description)
-                    jobs_buffer.append(full_job_info.model_dump(by_alias=True, mode="json"))
-                    #jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
+                    jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
                     fetched_count += 1
 
                     if on_progress:
@@ -283,15 +278,7 @@ class Crawler:
                             continue
                         seen_uuids.add(job.uuid)
 
-                        # jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
-
-                        try:
-                            full_detail = client.get_job_detail(job.uuid)
-                            jobs_buffer.append(full_detail.model_dump(by_alias=True, mode="json"))
-                        except Exception as e:
-                            print(f"Error fetching details for {job.uuid}: {e}")
-                            jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
-
+                        jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
                         fetched_count += 1
                         cat_fetched += 1
 
