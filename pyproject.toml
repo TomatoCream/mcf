@@ -10,13 +10,17 @@ requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.4.3",
     "httpx>=0.28.1",
+    "numpy>=2.2.0",
     "pandas>=2.3.3",
     "polars>=1.36.1",
     "pyarrow>=22.0.0",
+    "pypdf>=6.0.0",
     "pydantic>=2.12.5",
     "rich>=14.2.0",
+    "sentence-transformers>=5.0.0",
     "tenacity>=9.1.2",
     "typer>=0.21.0",
+    "python-docx>=1.2.0",
 ]
 
 [project.scripts]

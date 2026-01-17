@@ -29,8 +29,13 @@ class DetailSkill(_Base):
 
     uuid: str
     skill: str
-    isKeySkill: bool = False
+    # API sometimes returns null; treat as False/unknown but do not fail validation.
+    isKeySkill: bool | None = False
     confidence: float | None = None
+
+class Badge(_Base):
+    badgeType: str | None = None
+    expiryDate: str | None = None
 
 
 class DetailSalaryType(_Base):
@@ -75,7 +80,7 @@ class DetailCompany(_Base):
     employeeCount: int | None = None
     companyUrl: str | None = None
     lastSyncDate: str | None = None
-    badges: list[str] = []
+    badges: list[Badge] = []
     logoFileName: str | None = None
     logoUploadPath: str | None = None
     responsiveEmployer: dict | None = None
