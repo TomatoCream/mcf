@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -16,8 +17,17 @@ class MatchingService:
     def __init__(self, store: DuckDBStore) -> None:
         self.store = store
 
-    def match_candidate_to_jobs(self, profile_id: str, top_k: int = 25) -> list[dict[str, Any]]:
-        """Find top matching jobs for a candidate."""
+    def match_candidate_to_jobs(
+        self, profile_id: str, top_k: int = 25, exclude_interacted: bool = True, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Find top matching jobs for a candidate.
+        
+        Args:
+            profile_id: Candidate profile ID
+            top_k: Number of top matches to return
+            exclude_interacted: If True, filter out jobs user has interacted with
+            user_id: User ID for interaction filtering (if None, uses profile's user_id)
+        """
         candidate_emb = self.store.get_candidate_embedding(profile_id)
         if not candidate_emb:
             return []
@@ -26,21 +36,49 @@ class MatchingService:
         if not job_embeddings:
             return []
 
+        # Get interacted jobs if filtering is enabled
+        interacted_jobs: set[str] = set()
+        if exclude_interacted:
+            if user_id is None:
+                # Get user_id from profile
+                profile = self.store.get_profile_by_profile_id(profile_id)
+                if profile:
+                    user_id = profile.get("user_id")
+            if user_id:
+                interacted_jobs = self.store.get_interacted_jobs(user_id)
+
         candidate_vec = np.array(candidate_emb, dtype=np.float32)
-        scored: list[tuple[float, str, str]] = []
+        scored: list[tuple[float, str, str, datetime | None]] = []
 
         for job_uuid, title, job_emb in job_embeddings:
+            # Skip interacted jobs if filtering is enabled
+            if exclude_interacted and job_uuid in interacted_jobs:
+                continue
+            
             job_vec = np.array(job_emb, dtype=np.float32)
             # Cosine similarity (embeddings are normalized)
             score = float(np.dot(candidate_vec, job_vec))
-            scored.append((score, job_uuid, title))
+            
+            # Get job to access last_seen_at for recency sorting
+            job = self.store.get_job(job_uuid)
+            last_seen_at = job.get("last_seen_at") if job else None
+            
+            scored.append((score, job_uuid, title, last_seen_at))
 
-        scored.sort(reverse=True, key=lambda x: x[0])
+        # Sort by: 1) similarity score (desc), 2) recency (newer first)
+        # Handle None dates by putting them last (use a very old date)
+        def sort_key(x):
+            score, _, _, last_seen = x
+            # Use a very old date for None to put them last
+            date_for_sort = last_seen if last_seen else datetime(1970, 1, 1)
+            return (score, date_for_sort)
+        
+        scored.sort(reverse=True, key=sort_key)
         top_matches = scored[:top_k]
 
         # Get full job details and record matches
         results = []
-        for score, job_uuid, title in top_matches:
+        for score, job_uuid, title, _ in top_matches:
             job = self.store.get_job(job_uuid)
             if job:
                 match_id = secrets.token_urlsafe(16)
@@ -57,8 +95,9 @@ class MatchingService:
                         "title": title or job.get("title"),
                         "company_name": job.get("company_name"),
                         "location": job.get("location"),
-                        "description": job.get("description"),
+                        "job_url": job.get("job_url"),
                         "similarity_score": score,
+                        "last_seen_at": job.get("last_seen_at"),
                     }
                 )
 

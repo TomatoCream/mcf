@@ -72,8 +72,8 @@ class Storage(ABC):
         title: str | None,
         company_name: str | None,
         location: str | None,
-        description: str | None,
-        raw_json: dict,
+        job_url: str | None,
+        raw_json: dict | None = None,
     ) -> None:
         """Insert or update a job detail."""
         pass

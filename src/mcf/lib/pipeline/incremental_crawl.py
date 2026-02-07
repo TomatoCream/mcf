@@ -8,6 +8,7 @@ from typing import Sequence
 
 from mcf.lib.api.client import MCFClient
 from mcf.lib.crawler.crawler import Crawler
+from mcf.lib.embeddings.embedder import Embedder, EmbedderConfig
 from mcf.lib.storage.base import RunStats, Storage
 
 
@@ -20,7 +21,7 @@ class IncrementalCrawlResult:
     removed: list[str]
 
 
-def _extract_best_effort_fields(job_detail_json: dict) -> tuple[str | None, str | None, str | None, str | None]:
+def _extract_best_effort_fields(job_detail_json: dict) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     # The API model can evolve; keep extraction defensive.
     title = job_detail_json.get("title") or job_detail_json.get("jobTitle")
     description = job_detail_json.get("description") or job_detail_json.get("jobDescription")
@@ -36,7 +37,16 @@ def _extract_best_effort_fields(job_detail_json: dict) -> tuple[str | None, str 
         # pick something readable
         location = addr.get("country") or addr.get("postalCode") or addr.get("streetAddress")
 
-    return title, company_name, location, description
+    # Extract job URL from metadata
+    job_url = None
+    metadata = job_detail_json.get("metadata")
+    if isinstance(metadata, dict):
+        job_url = metadata.get("jobDetailsUrl")
+    # Also check top-level
+    if not job_url:
+        job_url = job_detail_json.get("jobDetailsUrl")
+
+    return title, company_name, location, description, job_url
 
 
 def run_incremental_crawl(
@@ -81,20 +91,42 @@ def run_incremental_crawl(
             store.deactivate_jobs(run_id=run.run_id, job_uuids=removed)
 
         if added:
+            # Initialize embedder for generating embeddings
+            embedder = Embedder(EmbedderConfig())
+            
             with MCFClient(rate_limit=rate_limit) as client:
                 for uuid in added:
                     detail = client.get_job_detail(uuid)
                     raw = detail.model_dump(by_alias=True, mode="json")
-                    title, company_name, location, description = _extract_best_effort_fields(raw)
+                    title, company_name, location, description, job_url = _extract_best_effort_fields(raw)
+                    
+                    # Generate embedding from description (if available)
+                    embedding = None
+                    if description:
+                        try:
+                            embedding = embedder.embed_text(description)
+                        except Exception as e:
+                            # Log error but continue - embedding generation is optional
+                            print(f"Warning: Failed to generate embedding for job {uuid}: {e}")
+                    
+                    # Store job details (without description text)
                     store.upsert_new_job_detail(
                         run_id=run.run_id,
                         job_uuid=uuid,
                         title=title,
                         company_name=company_name,
                         location=location,
-                        description=description,
-                        raw_json=raw,
+                        job_url=job_url,
+                        raw_json=None,  # Don't store raw_json to save space
                     )
+                    
+                    # Store embedding if generated
+                    if embedding:
+                        store.upsert_embedding(
+                            job_uuid=uuid,
+                            model_name=embedder.model_name,
+                            embedding=embedding,
+                        )
 
         store.finish_run(
             run.run_id,

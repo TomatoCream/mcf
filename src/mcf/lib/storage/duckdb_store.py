@@ -58,8 +58,7 @@ class DuckDBStore(Storage):
               title TEXT,
               company_name TEXT,
               location TEXT,
-              description TEXT,
-              raw_json TEXT
+              job_url TEXT
             )
             """
         )
@@ -85,6 +84,21 @@ class DuckDBStore(Storage):
             """
         )
         self._con.execute("CREATE INDEX IF NOT EXISTS idx_jobs_active ON jobs(is_active)")
+        self._con.execute("CREATE INDEX IF NOT EXISTS idx_jobs_last_seen ON jobs(last_seen_at DESC)")
+        
+        # Job interactions table for tracking user interactions
+        self._con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_interactions (
+              user_id TEXT,
+              job_uuid TEXT,
+              interaction_type TEXT,
+              interacted_at TIMESTAMP,
+              PRIMARY KEY (user_id, job_uuid, interaction_type)
+            )
+            """
+        )
+        self._con.execute("CREATE INDEX IF NOT EXISTS idx_job_interactions_user_job ON job_interactions(user_id, job_uuid)")
 
         # User and profile tables
         self._con.execute(
@@ -217,16 +231,16 @@ class DuckDBStore(Storage):
         title: str | None,
         company_name: str | None,
         location: str | None,
-        description: str | None,
-        raw_json: dict,
+        job_url: str | None,
+        raw_json: dict | None = None,
     ) -> None:
         now = _utcnow()
         self._con.execute(
             """
             INSERT INTO jobs(job_uuid, first_seen_run_id, last_seen_run_id, is_active,
                              first_seen_at, last_seen_at,
-                             title, company_name, location, description, raw_json)
-            VALUES (?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?)
+                             title, company_name, location, job_url)
+            VALUES (?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (job_uuid) DO UPDATE SET
               last_seen_run_id = excluded.last_seen_run_id,
               is_active = TRUE,
@@ -234,8 +248,7 @@ class DuckDBStore(Storage):
               title = COALESCE(excluded.title, jobs.title),
               company_name = COALESCE(excluded.company_name, jobs.company_name),
               location = COALESCE(excluded.location, jobs.location),
-              description = COALESCE(excluded.description, jobs.description),
-              raw_json = COALESCE(excluded.raw_json, jobs.raw_json)
+              job_url = COALESCE(excluded.job_url, jobs.job_url)
             """,
             [
                 job_uuid,
@@ -246,8 +259,7 @@ class DuckDBStore(Storage):
                 title,
                 company_name,
                 location,
-                description,
-                json.dumps(raw_json, ensure_ascii=False),
+                job_url,
             ],
         )
 
@@ -271,19 +283,19 @@ class DuckDBStore(Storage):
             rows,
         )
 
-    def jobs_missing_embeddings(self, *, limit: int | None = None) -> list[tuple[str, str | None]]:
+    def jobs_missing_embeddings(self, *, limit: int | None = None) -> list[str]:
+        """Get job UUIDs that are missing embeddings. Note: descriptions are not stored, so this is mainly for migration."""
         sql = """
-          SELECT j.job_uuid, j.description
+          SELECT j.job_uuid
             FROM jobs j
        LEFT JOIN job_embeddings e ON e.job_uuid = j.job_uuid
            WHERE j.is_active = TRUE
              AND e.job_uuid IS NULL
-             AND j.description IS NOT NULL
         """
         if limit and limit > 0:
             sql += f" LIMIT {int(limit)}"
         rows = self._con.execute(sql).fetchall()
-        return [(r[0], r[1]) for r in rows]
+        return [r[0] for r in rows]
 
     def upsert_embedding(self, *, job_uuid: str, model_name: str, embedding: Sequence[float]) -> None:
         now = _utcnow()
@@ -552,7 +564,7 @@ class DuckDBStore(Storage):
         """Get job by UUID."""
         row = self._con.execute(
             """
-            SELECT job_uuid, title, company_name, location, description, raw_json, is_active
+            SELECT job_uuid, title, company_name, location, job_url, is_active, first_seen_at, last_seen_at
             FROM jobs WHERE job_uuid = ?
             """,
             [job_uuid],
@@ -564,23 +576,21 @@ class DuckDBStore(Storage):
             "title": row[1],
             "company_name": row[2],
             "location": row[3],
-            "description": row[4],
-            "raw_json": json.loads(row[5]) if row[5] else None,
-            "is_active": row[6],
+            "job_url": row[4],
+            "is_active": row[5],
+            "first_seen_at": row[6],
+            "last_seen_at": row[7],
         }
 
     def search_jobs(
         self, *, limit: int = 100, offset: int = 0, category: str | None = None, keywords: str | None = None
     ) -> list[dict]:
         """Search jobs with filters."""
-        sql = "SELECT job_uuid, title, company_name, location, description FROM jobs WHERE is_active = TRUE"
+        sql = "SELECT job_uuid, title, company_name, location, job_url FROM jobs WHERE is_active = TRUE"
         params = []
-        if category:
-            sql += " AND raw_json LIKE ?"
-            params.append(f'%"categories"%{category}%')
         if keywords:
-            sql += " AND (title LIKE ? OR description LIKE ?)"
-            params.extend([f"%{keywords}%", f"%{keywords}%"])
+            sql += " AND (title LIKE ? OR company_name LIKE ? OR location LIKE ?)"
+            params.extend([f"%{keywords}%", f"%{keywords}%", f"%{keywords}%"])
         sql += " ORDER BY last_seen_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
         rows = self._con.execute(sql, params).fetchall()
@@ -590,7 +600,7 @@ class DuckDBStore(Storage):
                 "title": row[1],
                 "company_name": row[2],
                 "location": row[3],
-                "description": row[4],
+                "job_url": row[4],
             }
             for row in rows
         ]
@@ -624,3 +634,54 @@ class DuckDBStore(Storage):
         """Get count of active jobs."""
         row = self._con.execute("SELECT COUNT(*) FROM jobs WHERE is_active = TRUE").fetchone()
         return row[0] if row else 0
+
+    # Job interaction tracking
+    def record_interaction(self, *, user_id: str, job_uuid: str, interaction_type: str) -> None:
+        """Record a user interaction with a job."""
+        now = _utcnow()
+        self._con.execute(
+            """
+            INSERT OR REPLACE INTO job_interactions(user_id, job_uuid, interaction_type, interacted_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            [user_id, job_uuid, interaction_type, now],
+        )
+
+    def get_interacted_jobs(self, user_id: str) -> set[str]:
+        """Get set of job UUIDs that the user has interacted with."""
+        rows = self._con.execute(
+            "SELECT DISTINCT job_uuid FROM job_interactions WHERE user_id = ?",
+            [user_id],
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def has_interacted(self, user_id: str, job_uuid: str) -> bool:
+        """Check if user has interacted with a job."""
+        row = self._con.execute(
+            "SELECT 1 FROM job_interactions WHERE user_id = ? AND job_uuid = ? LIMIT 1",
+            [user_id, job_uuid],
+        ).fetchone()
+        return row is not None
+
+    def get_profile_by_profile_id(self, profile_id: str) -> dict | None:
+        """Get profile by profile ID."""
+        row = self._con.execute(
+            """
+            SELECT profile_id, user_id, raw_resume_text, expanded_profile_json,
+                   skills_json, experience_json, created_at, updated_at
+            FROM candidate_profiles WHERE profile_id = ?
+            """,
+            [profile_id],
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "profile_id": row[0],
+            "user_id": row[1],
+            "raw_resume_text": row[2],
+            "expanded_profile_json": json.loads(row[3]) if row[3] else None,
+            "skills_json": json.loads(row[4]) if row[4] else None,
+            "experience_json": json.loads(row[5]) if row[5] else None,
+            "created_at": row[6],
+            "updated_at": row[7],
+        }

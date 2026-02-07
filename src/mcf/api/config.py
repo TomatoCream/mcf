@@ -11,7 +11,13 @@ class Settings(BaseSettings):
     """Application settings."""
 
     # Database
-    database_url: str = os.getenv("DATABASE_URL", "")
+    db_path: str = os.getenv("DB_PATH", "data/mcf.duckdb")
+    
+    # User
+    default_user_id: str = os.getenv("DEFAULT_USER_ID", "default_user")
+    
+    # Resume
+    resume_path: str = os.getenv("RESUME_PATH", "resume/resume.pdf")
     
     # API
     api_port: int = int(os.getenv("API_PORT", "8000"))
