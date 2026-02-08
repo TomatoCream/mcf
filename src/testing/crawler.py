@@ -172,12 +172,7 @@ class Crawler:
                     break
 
                 for job in response.results:
-                    job_uuid = job.uuid
-                    full_job_info = client.get_job_detail(job_uuid)
-                    
-                    # 3. Save the full info (which includes the description)
-                    jobs_buffer.append(full_job_info.model_dump(by_alias=True, mode="json"))
-                    #jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
+                    jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
                     fetched_count += 1
 
                     if on_progress:
@@ -217,92 +212,6 @@ class Crawler:
                 duration_seconds=time.monotonic() - start_time,
                 interrupted=True,
             )
-
-    def list_job_uuids_all_categories(
-        self,
-        *,
-        categories: list[str] | None = None,
-        limit: int | None = None,
-        on_progress: ProgressCallback | None = None,
-    ) -> list[str]:
-        """List job UUIDs without fetching job detail.
-
-        This is the key primitive for incremental crawling: we can diff UUID sets
-        against a database to decide which jobs need `get_job_detail()`.
-        """
-        fetched_count = 0
-        start_time = time.monotonic()
-        uuids: list[str] = []
-        seen: set[str] = set()
-
-        try:
-            client = MCFClient(rate_limit=self.rate_limit)
-
-            # If categories are provided, list within them; else list across all categories
-            cats = categories if categories is not None else CATEGORIES
-
-            # Estimate total (sum of per-category totals) for progress/ETA.
-            category_counts: list[tuple[str, int]] = []
-            for cat in cats:
-                resp = client.search_jobs(limit=1, categories=[cat])
-                category_counts.append((cat, resp.total))
-            estimated_total = sum(c for _, c in category_counts)
-            if limit:
-                estimated_total = min(estimated_total, limit)
-
-            total_categories = len(category_counts)
-            for cat_idx, (category, cat_total) in enumerate(category_counts, 1):
-                if cat_total == 0:
-                    continue
-                page = 0
-                page_size = 100
-                cat_fetched = 0
-                while True:
-                    resp = client.search_jobs(
-                        page=page,
-                        limit=page_size,
-                        categories=[category],
-                        sort_by_date=True,
-                    )
-                    if not resp.results:
-                        break
-                    for job in resp.results:
-                        if job.uuid in seen:
-                            continue
-                        seen.add(job.uuid)
-                        uuids.append(job.uuid)
-                        fetched_count += 1
-                        cat_fetched += 1
-
-                        if on_progress:
-                            elapsed = time.monotonic() - start_time
-                            on_progress(
-                                CrawlProgress(
-                                    total_jobs=estimated_total,
-                                    fetched=fetched_count,
-                                    elapsed=elapsed,
-                                    current_category=category,
-                                    category_index=cat_idx,
-                                    total_categories=total_categories,
-                                    category_fetched=cat_fetched,
-                                    category_total=cat_total,
-                                )
-                            )
-                        if limit and fetched_count >= limit:
-                            break
-                    if limit and fetched_count >= limit:
-                        break
-                    if (page + 1) * page_size >= resp.total:
-                        break
-                    if (page + 1) * page_size >= 10000:
-                        break
-                    page += 1
-                if limit and fetched_count >= limit:
-                    break
-            client.close()
-            return uuids
-        except KeyboardInterrupt:
-            return uuids
 
     def crawl_all_categories(
         self,
@@ -369,15 +278,7 @@ class Crawler:
                             continue
                         seen_uuids.add(job.uuid)
 
-                        # jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
-
-                        try:
-                            full_detail = client.get_job_detail(job.uuid)
-                            jobs_buffer.append(full_detail.model_dump(by_alias=True, mode="json"))
-                        except Exception as e:
-                            print(f"Error fetching details for {job.uuid}: {e}")
-                            jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
-
+                        jobs_buffer.append(job.model_dump(by_alias=True, mode="json"))
                         fetched_count += 1
                         cat_fetched += 1
 

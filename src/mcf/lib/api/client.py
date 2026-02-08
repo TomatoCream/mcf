@@ -71,18 +71,41 @@ class MCFClient:
         if elapsed < min_interval:
             time.sleep(min_interval - elapsed)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
     def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
-        self._wait_for_rate_limit()
-        self._last_request_time = time.monotonic()
-        response = self._client.request(method, url, **kwargs)
-        if response.status_code >= 400:
+        """Make an HTTP request with retry logic for 403 errors."""
+        max_attempts = 5
+        attempt = 0
+        
+        while attempt < max_attempts:
+            self._wait_for_rate_limit()
+            self._last_request_time = time.monotonic()
+            response = self._client.request(method, url, **kwargs)
+            
+            if response.status_code < 400:
+                return response
+            
+            # For 403 errors, wait longer before retrying (rate limit/IP block)
+            if response.status_code == 403:
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise MCFAPIError(response.status_code, response.text)
+                # Wait progressively longer: 5 min, 10 min, 15 min, 20 min
+                wait_time = 5 * 60 * attempt  # Convert to seconds
+                time.sleep(wait_time)
+                continue
+            
+            # For other 4xx/5xx errors, use standard retry with exponential backoff
+            if attempt < 2:  # Retry up to 2 more times for non-403 errors
+                attempt += 1
+                wait_time = min(2 ** attempt, 10)  # Exponential backoff, max 10 seconds
+                time.sleep(wait_time)
+                continue
+            
+            # If we've exhausted retries, raise the error
             raise MCFAPIError(response.status_code, response.text)
-        return response
+        
+        # Should never reach here, but just in case
+        raise MCFAPIError(response.status_code, response.text)
 
     def search_jobs(
         self,

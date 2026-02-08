@@ -116,6 +116,7 @@ class JobStatus(_Base):
 class Job(_Base):
     uuid: str
     title: str
+    description: str | None = None
     score: float = 0.0
     retriever_score: float = 0.0
     recency_score: float = 0.0
