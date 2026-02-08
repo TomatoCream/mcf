@@ -186,10 +186,30 @@ def process_resume():
 
 # Matching endpoints
 @app.get("/api/matches")
-def get_matches(exclude_interacted: bool = True, top_k: int = 25):
-    """Get job matches for current user's resume."""
+def get_matches(
+    exclude_interacted: bool = True, 
+    top_k: int = 25,
+    min_similarity: float = 0.0,
+    max_days_old: int | None = None,
+):
+    """Get job matches for current user's resume.
+    
+    Args:
+        exclude_interacted: Filter out jobs user has interacted with
+        top_k: Number of top matches to return
+        min_similarity: Minimum similarity threshold (0.0 to 1.0)
+        max_days_old: Maximum age of job in days (None = no limit)
+    """
     store = get_store()
     user_id = settings.default_user_id
+    
+    # Validate min_similarity
+    if not 0.0 <= min_similarity <= 1.0:
+        raise HTTPException(status_code=400, detail="min_similarity must be between 0.0 and 1.0")
+    
+    # Validate max_days_old
+    if max_days_old is not None and max_days_old < 0:
+        raise HTTPException(status_code=400, detail="max_days_old must be a positive integer")
     
     # Get profile
     profile = store.get_profile_by_user_id(user_id)
@@ -205,6 +225,8 @@ def get_matches(exclude_interacted: bool = True, top_k: int = 25):
         top_k=top_k,
         exclude_interacted=exclude_interacted,
         user_id=user_id,
+        min_similarity=min_similarity,
+        max_days_old=max_days_old,
     )
     
     return {"matches": matches, "total": len(matches)}

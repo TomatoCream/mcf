@@ -313,18 +313,34 @@ class DuckDBStore(Storage):
             [job_uuid, model_name, json.dumps(emb_list), len(emb_list), now],
         )
 
-    def get_active_job_embeddings(self) -> list[tuple[str, str, list[float]]]:
+    def get_active_job_embeddings(self) -> list[tuple[str, str, list[float], dict]]:
+        """Get active job embeddings with all job details in a single query.
+        
+        Returns:
+            List of tuples: (job_uuid, title, embedding, job_details_dict)
+            where job_details_dict contains: company_name, location, job_url, 
+            first_seen_at, last_seen_at
+        """
         rows = self._con.execute(
             """
-            SELECT j.job_uuid, j.title, e.embedding_json
+            SELECT j.job_uuid, j.title, e.embedding_json,
+                   j.company_name, j.location, j.job_url,
+                   j.first_seen_at, j.last_seen_at
               FROM jobs j
               JOIN job_embeddings e ON e.job_uuid = j.job_uuid
              WHERE j.is_active = TRUE
             """
         ).fetchall()
-        out: list[tuple[str, str, list[float]]] = []
-        for uuid, title, emb_json in rows:
-            out.append((uuid, title or "", json.loads(emb_json)))
+        out: list[tuple[str, str, list[float], dict]] = []
+        for uuid, title, emb_json, company_name, location, job_url, first_seen_at, last_seen_at in rows:
+            job_details = {
+                "company_name": company_name,
+                "location": location,
+                "job_url": job_url,
+                "first_seen_at": first_seen_at,
+                "last_seen_at": last_seen_at,
+            }
+            out.append((uuid, title or "", json.loads(emb_json), job_details))
         return out
 
     # User management

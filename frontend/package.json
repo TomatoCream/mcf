@@ -19,7 +19,8 @@
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "clsx": "^2.1.0",
-    "lucide-react": "^0.400.0"
+    "lucide-react": "^0.400.0",
+    "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

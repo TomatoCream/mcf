@@ -327,7 +327,7 @@ Once API server is running:
 
 ```bash
 # Start API server
-uvicorn mcf.api.server:app --reload
+uv run uvicorn mcf.api.server:app --reload
 
 # Query via API (in another terminal)
 curl http://localhost:8000/api/crawl/stats
@@ -428,7 +428,7 @@ python -c "from mcf.lib.storage.postgres_store import PostgresStore; import os; 
 uv run mcf crawl-incremental --db-url "$DATABASE_URL"
 
 # Run API server
-uvicorn mcf.api.server:app --reload --port 8000
+uv run uvicorn mcf.api.server:app --reload --port 8000
 
 # Check database
 psql "your-connection-string" -c "SELECT COUNT(*) FROM jobs;"

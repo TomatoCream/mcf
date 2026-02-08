@@ -75,11 +75,22 @@ export const profileApi = {
 
 // Matches API
 export const matchesApi = {
-  get: async (excludeInteracted: boolean = true, topK: number = 25) => {
+  get: async (
+    excludeInteracted: boolean = true, 
+    topK: number = 25,
+    minSimilarity?: number,
+    maxDaysOld?: number
+  ) => {
     const params = new URLSearchParams({
       exclude_interacted: excludeInteracted.toString(),
       top_k: topK.toString()
     })
+    if (minSimilarity !== undefined) {
+      params.append('min_similarity', minSimilarity.toString())
+    }
+    if (maxDaysOld !== undefined) {
+      params.append('max_days_old', maxDaysOld.toString())
+    }
     const response = await api.get(`/api/matches?${params}`)
     return response.data
   },
